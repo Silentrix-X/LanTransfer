@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>内网文件传输</title>
+    <style>
+        :root {
+            --bg: #0f0f12;
+            --surface: #1a1a20;
+            --border: #2a2a32;
+            --text: #e4e4e7;
+            --text-muted: #71717a;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #22c55e;
+            --error: #ef4444;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 24px;
+            line-height: 1.5;
+        }
+        .page {
+            max-width: 560px;
+            margin: 0 auto;
+        }
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0 0 8px;
+        }
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            margin-bottom: 24px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+        }
+        .card h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin: 0 0 12px;
+            color: var(--text-muted);
+        }
+        .row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .row:last-child { margin-bottom: 0; }
+        button {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+        button:hover { background: var(--accent-hover); }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button.secondary {
+            background: var(--border);
+        }
+        button.secondary:hover { background: #3a3a44; }
+        input[type="text"], input[type="file"] {
+            flex: 1;
+            min-width: 160px;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.875rem;
+        }
+        input[type="file"] { min-width: 0; }
+        textarea {
+            width: 100%;
+            min-height: 80px;
+            padding: 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 0.75rem;
+            font-family: ui-monospace, monospace;
+            resize: vertical;
+            margin-bottom: 8px;
+        }
+        #status {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-top: 12px;
+        }
+        #status.ready { color: var(--success); }
+        #status.error { color: var(--error); }
+        .progress-wrap {
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 12px;
+            display: none;
+        }
+        .progress-wrap.show { display: block; }
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: var(--accent);
+            transition: width 0.2s;
+        }
+        .id-display {
+            font-family: ui-monospace, monospace;
+            font-size: 1rem;
+            letter-spacing: 0.05em;
+            padding: 10px 14px;
+            background: var(--bg);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 8px;
+        }
+        .step-num {
+            display: inline-flex;
+            width: 20px;
+            height: 20px;
+            align-items: center;
+            justify-content: center;
+            background: var(--border);
+            border-radius: 50%;
+            font-size: 0.75rem;
+            margin-right: 8px;
+        }
+        .hint { font-size: 0.8125rem; color: var(--text-muted); margin-top: 8px; }
+        .qr-wrap { text-align: center; margin: 12px 0; }
+        .qr-wrap img, .qr-wrap canvas { max-width: 400px; width: 100%; border-radius: 8px; background: #fff; padding: 8px; }
+        .qr-wrap p { font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; }
+        .scan-btn { margin-left: 0; }
+        .modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.85);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .modal.show { display: flex; }
+        .modal-inner {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            max-width: 100%;
+        }
+        .modal-inner video { width: 100%; max-width: 320px; border-radius: 8px; background: #000; }
+        .modal-inner .row { margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <h1>内网文件传输</h1>
+        <p class="subtitle">两台设备打开此页面。可填房间号自动建连（需联网），或手动交换 Offer/Answer（纯内网）。</p>
+
+        <div class="card">
+            <h3>房间号模式（只需填房间号，需联网）</h3>
+            <p class="hint">双方输入<strong>相同房间号</strong>，发送方点「建房间」、接收方点「加入房间」即可，无需复制 Answer。</p>
+            <div class="row">
+                <input type="text" id="roomInput" placeholder="房间号，如 abc123" maxlength="32" style="max-width: 180px;">
+                <button id="roomCreateBtn">建房间（发送方）</button>
+                <button id="roomJoinBtn" class="secondary">加入房间（接收方）</button>
+            </div>
+            <p class="hint" id="roomHint" style="display: none; margin-top: 8px;"></p>
+        </div>
+
+        <div class="card">
+            <h3>手动交换 Offer/Answer（纯内网、无需服务器）</h3>
+            <p class="hint">WebRTC 必须交换完整 SDP 才能建连，不能只填 IP；若不想用房间号，需复制/扫码整段 Offer 和 Answer。</p>
+            <div class="row">
+                <button id="createBtn">创建连接（发送方）</button>
+                <button id="joinBtn" class="secondary">加入连接（接收方）</button>
+            </div>
+            <div id="creatorBox" style="display: none;">
+                <p class="hint"><span class="step-num">1</span>让对方<strong>扫下面二维码</strong>或<strong>复制 Offer</strong> 填入对方页面</p>
+                <div class="qr-wrap" id="offerQrWrap" style="display: none;">
+                    <canvas id="offerQr"></canvas>
+                    <p>对方用「扫码填入」扫此码；若难扫出请用下方复制粘贴</p>
+                </div>
+                <textarea id="offerArea" readonly placeholder="创建连接后这里会显示 Offer"></textarea>
+                <div class="row">
+                    <button id="copyOfferBtn" class="secondary">复制 Offer</button>
+                </div>
+                <p class="hint"><span class="step-num">2</span>对方会给你 <strong>Answer</strong>，扫对方的二维码或粘贴到下面 → 完成连接</p>
+                <label>对方的 Answer</label>
+                <div class="row">
+                    <button id="scanAnswerBtn" class="secondary scan-btn">扫码填入</button>
+                </div>
+                <textarea id="answerInput" placeholder="粘贴或扫码填入对方发来的 Answer"></textarea>
+                <div class="row">
+                    <button id="confirmAnswerBtn">完成连接</button>
+                </div>
+            </div>
+            <div id="joinerBox" style="display: none;">
+                <p class="hint"><span class="step-num">1</span>扫对方屏幕上的 <strong>Offer 二维码</strong> 或粘贴对方发来的 Offer</p>
+                <div class="row">
+                    <button id="scanOfferBtn" class="secondary scan-btn">扫码填入 Offer</button>
+                </div>
+                <textarea id="offerInput" placeholder="粘贴或扫码填入对方的 Offer"></textarea>
+                <div class="row">
+                    <button id="pasteOfferBtn">加入并生成 Answer</button>
+                </div>
+                <p class="hint"><span class="step-num">2</span>让对方<strong>扫下面二维码</strong>或<strong>复制 Answer</strong>，对方完成连接即可传文件</p>
+                <div class="qr-wrap" id="answerQrWrap" style="display: none;">
+                    <canvas id="answerQr"></canvas>
+                    <p>对方用「扫码填入」扫此码；若难扫出请用下方复制粘贴</p>
+                </div>
+                <textarea id="answerArea" readonly placeholder="加入后会显示 Answer"></textarea>
+                <div class="row">
+                    <button id="copyAnswerBtn" class="secondary">复制 Answer</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card" id="transferCard" style="display: none;">
+            <h3>传输文件</h3>
+            <div class="row">
+                <input type="file" id="fileInput" multiple>
+                <button id="sendBtn" disabled>发送</button>
+            </div>
+            <div id="status">连接就绪后可选择文件并发送</div>
+            <div class="progress-wrap" id="progressWrap">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="scanModal">
+        <div class="modal-inner">
+            <video id="scanVideo" playsinline muted></video>
+            <canvas id="scanCanvas" style="display: none;"></canvas>
+            <p class="hint" id="scanHint">将对方屏幕上的二维码对准框内</p>
+            <div class="row">
+                <button id="closeScanBtn" class="secondary">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+    <script>
+        /* ----- 本地二维码生成（无第三方 QR 库） ----- */
+        (function() {
+            const ECC_L = 0;
+            const VERSIONS = [
+                null,
+                { size: 21, dataBytes: 19, ecBlocks: [1, 7], ecPerBlock: 7 },
+                { size: 25, dataBytes: 34, ecBlocks: [1, 10], ecPerBlock: 10 },
+                { size: 29, dataBytes: 55, ecBlocks: [1, 15], ecPerBlock: 15 },
+                { size: 33, dataBytes: 80, ecBlocks: [1, 20], ecPerBlock: 20 },
+                { size: 37, dataBytes: 108, ecBlocks: [1, 26], ecPerBlock: 26 },
+                { size: 41, dataBytes: 136, ecBlocks: [2, 18], ecPerBlock: 18 },
+                { size: 45, dataBytes: 156, ecBlocks: [2, 20], ecPerBlock: 20 },
+                { size: 49, dataBytes: 194, ecBlocks: [2, 24], ecPerBlock: 24 },
+                { size: 53, dataBytes: 232, ecBlocks: [2, 30], ecPerBlock: 30 },
+                { size: 57, dataBytes: 274, ecBlocks: [4, 18], ecPerBlock: 18 },
+                { size: 61, dataBytes: 324, ecBlocks: [4, 20], ecPerBlock: 20 },
+                { size: 65, dataBytes: 370, ecBlocks: [4, 24], ecPerBlock: 24 },
+                { size: 69, dataBytes: 428, ecBlocks: [4, 30], ecPerBlock: 30 },
+                { size: 73, dataBytes: 461, ecBlocks: [6, 22], ecPerBlock: 22 },
+                { size: 77, dataBytes: 523, ecBlocks: [6, 24], ecPerBlock: 24 },
+                { size: 81, dataBytes: 589, ecBlocks: [6, 28], ecPerBlock: 28 },
+                { size: 85, dataBytes: 647, ecBlocks: [6, 30], ecPerBlock: 30 },
+                { size: 89, dataBytes: 721, ecBlocks: [8, 24], ecPerBlock: 24 },
+                { size: 93, dataBytes: 795, ecBlocks: [8, 28], ecPerBlock: 28 },
+                { size: 97, dataBytes: 861, ecBlocks: [8, 30], ecPerBlock: 30 },
+                { size: 101, dataBytes: 932, ecBlocks: [10, 28], ecPerBlock: 28 },
+                { size: 105, dataBytes: 1006, ecBlocks: [10, 30], ecPerBlock: 30 },
+                { size: 109, dataBytes: 1094, ecBlocks: [10, 32], ecPerBlock: 32 },
+                { size: 113, dataBytes: 1174, ecBlocks: [12, 28], ecPerBlock: 28 },
+                { size: 117, dataBytes: 1276, ecBlocks: [12, 30], ecPerBlock: 30 },
+                { size: 121, dataBytes: 1370, ecBlocks: [12, 32], ecPerBlock: 32 },
+                { size: 125, dataBytes: 1468, ecBlocks: [14, 28], ecPerBlock: 28 },
+                { size: 129, dataBytes: 1531, ecBlocks: [14, 30], ecPerBlock: 30 },
+                { size: 133, dataBytes: 1631, ecBlocks: [14, 32], ecPerBlock: 32 },
+                { size: 137, dataBytes: 1735, ecBlocks: [16, 30], ecPerBlock: 30 },
+                { size: 141, dataBytes: 1843, ecBlocks: [16, 32], ecPerBlock: 32 },
+                { size: 145, dataBytes: 1955, ecBlocks: [18, 28], ecPerBlock: 28 },
+                { size: 149, dataBytes: 2071, ecBlocks: [18, 30], ecPerBlock: 30 },
+                { size: 153, dataBytes: 2191, ecBlocks: [18, 32], ecPerBlock: 32 },
+                { size: 157, dataBytes: 2306, ecBlocks: [20, 28], ecPerBlock: 28 },
+                { size: 161, dataBytes: 2434, ecBlocks: [20, 30], ecPerBlock: 30 },
+                { size: 165, dataBytes: 2566, ecBlocks: [20, 32], ecPerBlock: 32 },
+                { size: 169, dataBytes: 2702, ecBlocks: [22, 28], ecPerBlock: 28 },
+                { size: 173, dataBytes: 2812, ecBlocks: [22, 30], ecPerBlock: 30 },
+                { size: 177, dataBytes: 2956, ecBlocks: [22, 32], ecPerBlock: 32 }
+            ];
+            let expTable = [], logTable = [];
+            expTable[0] = 1;
+            for (let i = 1; i < 255; i++) {
+                expTable[i] = (expTable[i - 1] << 1) ^ (expTable[i - 1] >= 128 ? 0x11D : 0);
+                if (expTable[i] >= 256) expTable[i] &= 0xFF;
+            }
+            for (let i = 0; i < 255; i++) logTable[expTable[i]] = i;
+
+            function mul(a, b) {
+                if (!a || !b) return 0;
+                return expTable[(logTable[a] + logTable[b]) % 255];
+            }
+            function rsEncode(dataLen, data, ecCount) {
+                const gen = [1];
+                for (let i = 0; i < ecCount; i++) gen.push(0);
+                for (let i = 0; i < ecCount; i++) {
+                    const a = expTable[i];
+                    gen[ecCount] = gen[ecCount - 1];
+                    for (let j = ecCount - 1; j >= 1; j--) gen[j] = gen[j - 1] ^ mul(a, gen[j]);
+                    gen[0] = mul(a, gen[0]);
+                }
+                const out = data.slice(0);
+                for (let i = 0; i < ecCount; i++) out.push(0);
+                for (let i = 0; i < dataLen; i++) {
+                    const k = out[i];
+                    if (k) for (let j = 0; j <= ecCount; j++) out[i + j] ^= mul(gen[j], k);
+                }
+                return out.slice(dataLen);
+            }
+            function encodeBytes(s) {
+                const bytes = [];
+                for (let i = 0; i < s.length; i++) {
+                    const c = s.charCodeAt(i);
+                    if (c < 128) bytes.push(c);
+                    else if (c < 2048) { bytes.push(0xC0 | (c >> 6)); bytes.push(0x80 | (c & 0x3F)); }
+                    else if (c < 0xD800 || c >= 0xE000) { bytes.push(0xE0 | (c >> 12)); bytes.push(0x80 | ((c >> 6) & 0x3F)); bytes.push(0x80 | (c & 0x3F)); }
+                    else { i++; const u = 0x10000 + ((c & 0x3FF) << 10) + (s.charCodeAt(i) & 0x3FF); bytes.push(0xF0 | (u >> 18)); bytes.push(0x80 | ((u >> 12) & 0x3F)); bytes.push(0x80 | ((u >> 6) & 0x3F)); bytes.push(0x80 | (u & 0x3F)); }
+                }
+                return bytes;
+            }
+            function getVersionForBytes(numBytes) {
+                const need = 1 + 2 + numBytes;
+                for (let v = 1; v <= 40; v++) {
+                    if (VERSIONS[v].dataBytes >= need) return v;
+                }
+                return 40;
+            }
+            function isReserved(size, x, y) {
+                if (y < 7 && x < 7) return true;
+                if (y < 7 && x >= size - 7) return true;
+                if (y >= size - 7 && x < 7) return true;
+                if (x === 6 || y === 6) return true;
+                return false;
+            }
+            function dataPlacementOrder(size) {
+                const order = [];
+                let up = true;
+                for (let col = size - 1; col >= 0; col -= 2) {
+                    if (col === 6) col--;
+                    if (col < 0) break;
+                    for (let c = 0; c < 2; c++) {
+                        const x = col - c;
+                        const rows = up ? Array.from({ length: size }, (_, i) => size - 1 - i) : Array.from({ length: size }, (_, i) => i);
+                        for (let i = 0; i < size; i++) {
+                            const y = rows[i];
+                            if (!isReserved(size, x, y)) order.push(x, y);
+                        }
+                        up = !up;
+                    }
+                }
+                return order;
+            }
+            function buildMatrix(version, dataCodewords, ecCodewords) {
+                const v = VERSIONS[version];
+                const size = v.size;
+                const matrix = Array(size * size).fill(-1);
+                function set(x, y, val) { if (x >= 0 && x < size && y >= 0 && y < size) matrix[y * size + x] = val; }
+                function drawFinder(ox, oy) {
+                    for (let i = 0; i < 7; i++) for (let j = 0; j < 7; j++) {
+                        const on = (i === 0 || i === 6 || j === 0 || j === 6) || (i >= 2 && i <= 4 && j >= 2 && j <= 4);
+                        set(ox + i, oy + j, on ? 1 : 0);
+                    }
+                }
+                drawFinder(0, 0);
+                drawFinder(size - 7, 0);
+                drawFinder(0, size - 7);
+                for (let i = 8; i < size - 8; i++) set(6, i, i % 2), set(i, 6, i % 2);
+                const fmtBits = 0x7252;
+                const fmtPos = [[8,0],[8,1],[8,2],[8,3],[8,4],[8,5],[8,7],[8,8],[7,8],[5,8],[4,8],[3,8],[2,8],[1,8],[0,8]];
+                for (let i = 0; i < 15; i++) set(fmtPos[i][0], fmtPos[i][1], (fmtBits >> (14 - i)) & 1);
+                for (let i = 0; i < 7; i++) set(size - 1 - i, 8, (fmtBits >> (14 - i)) & 1);
+                for (let i = 0; i < 8; i++) set(8, size - 8 + i, (fmtBits >> (7 - i)) & 1);
+                set(8, size - 1, 1);
+                const allBits = [];
+                const addBits = (arr) => { for (let i = 0; i < arr.length; i++) for (let b = 7; b >= 0; b--) allBits.push((arr[i] >> b) & 1); };
+                addBits(dataCodewords);
+                addBits(ecCodewords);
+                const order = dataPlacementOrder(size);
+                for (let i = 0; i < allBits.length && i * 2 < order.length; i++) {
+                    const x = order[i * 2], y = order[i * 2 + 1];
+                    matrix[y * size + x] = allBits[i];
+                }
+                for (let i = 0; i < size * size; i++) if (matrix[i] === -1) matrix[i] = 0;
+                const maskId = 0;
+                for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+                    if (matrix[y * size + x] === 1 && !isReserved(size, x, y)) {
+                        const inv = (maskId === 0 && (y + x) % 2 === 0);
+                        if (inv) matrix[y * size + x] = 0;
+                    }
+                }
+                return { matrix, size };
+            }
+            window.drawQrToCanvas = function(canvas, text, opts) {
+                opts = opts || {};
+                const margin = opts.margin != null ? opts.margin : 2;
+                const bytes = encodeBytes(text);
+                const version = getVersionForBytes(bytes.length);
+                const v = VERSIONS[version];
+                const dataBytes = v.dataBytes;
+                const ecCount = v.ecPerBlock * v.ecBlocks[0];
+                const bits = [0x40, (bytes.length >> 8) & 0xFF, bytes.length & 0xFF];
+                for (let i = 0; i < bytes.length; i++) bits.push(bytes[i]);
+                while (bits.length < dataBytes) bits.push(0xEC), bits.push(0x11);
+                const dataCodewords = bits.slice(0, dataBytes);
+                const ecCodewords = rsEncode(dataBytes, dataCodewords, ecCount);
+                const { matrix, size } = buildMatrix(version, dataCodewords, ecCodewords);
+                const total = size + margin * 2;
+                const scale = opts.width ? Math.max(2, Math.ceil(opts.width / total)) : 2;
+                canvas.width = total * scale;
+                canvas.height = total * scale;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#000';
+                for (let y = 0; y < size; y++) {
+                    for (let x = 0; x < size; x++) {
+                        if (matrix[y * size + x] === 1) {
+                            ctx.fillRect((margin + x) * scale, (margin + y) * scale, scale, scale);
+                        }
+                    }
+                }
+            };
+        })();
+
+        let peerConnection = null;
+        let dataChannel = null;
+        const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+
+        const createBtn = document.getElementById('createBtn');
+        const joinBtn = document.getElementById('joinBtn');
+        const creatorBox = document.getElementById('creatorBox');
+        const joinerBox = document.getElementById('joinerBox');
+        const offerArea = document.getElementById('offerArea');
+        const answerInput = document.getElementById('answerInput');
+        const confirmAnswerBtn = document.getElementById('confirmAnswerBtn');
+        const offerInput = document.getElementById('offerInput');
+        const answerArea = document.getElementById('answerArea');
+        const pasteOfferBtn = document.getElementById('pasteOfferBtn');
+        const copyOfferBtn = document.getElementById('copyOfferBtn');
+        const copyAnswerBtn = document.getElementById('copyAnswerBtn');
+        const offerQrWrap = document.getElementById('offerQrWrap');
+        const offerQr = document.getElementById('offerQr');
+        const answerQrWrap = document.getElementById('answerQrWrap');
+        const answerQr = document.getElementById('answerQr');
+        const scanModal = document.getElementById('scanModal');
+        const scanVideo = document.getElementById('scanVideo');
+        const closeScanBtn = document.getElementById('closeScanBtn');
+        const scanOfferBtn = document.getElementById('scanOfferBtn');
+        const scanAnswerBtn = document.getElementById('scanAnswerBtn');
+        const transferCard = document.getElementById('transferCard');
+        const fileInput = document.getElementById('fileInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const statusEl = document.getElementById('status');
+        const progressWrap = document.getElementById('progressWrap');
+        const progressBar = document.getElementById('progressBar');
+        const roomInput = document.getElementById('roomInput');
+        const roomCreateBtn = document.getElementById('roomCreateBtn');
+        const roomJoinBtn = document.getElementById('roomJoinBtn');
+        const roomHint = document.getElementById('roomHint');
+
+        let roomPeer = null;
+
+        function setStatus(msg, type = '') {
+            statusEl.textContent = msg;
+            statusEl.className = type;
+        }
+
+        function showProgress(show, percent = 0) {
+            progressWrap.classList.toggle('show', show);
+            progressBar.style.width = percent + '%';
+        }
+
+        function initDataChannel(channel) {
+            channel.onopen = () => {
+                setStatus('已连接，可以发送文件', 'ready');
+                sendBtn.disabled = false;
+            };
+            channel.onclose = () => {
+                setStatus('连接已断开', 'error');
+                sendBtn.disabled = true;
+            };
+
+            let receivedChunks = [];
+            let receivedSize = 0;
+            let fileMeta = null;
+
+            channel.onmessage = (e) => {
+                if (typeof e.data === 'string') {
+                    try {
+                        fileMeta = JSON.parse(e.data);
+                        receivedChunks = [];
+                        receivedSize = 0;
+                        setStatus(`正在接收：${fileMeta.name}`);
+                        showProgress(true, 0);
+                    } catch (_) {}
+                    return;
+                }
+
+                receivedChunks.push(e.data);
+                receivedSize += e.data.byteLength;
+                if (fileMeta) {
+                    const pct = Math.min(100, (receivedSize / fileMeta.size) * 100);
+                    progressBar.style.width = pct + '%';
+
+                    if (receivedSize >= fileMeta.size) {
+                        const blob = new Blob(receivedChunks, { type: fileMeta.type || 'application/octet-stream' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = fileMeta.name;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                        setStatus(`已保存：${fileMeta.name}（${formatSize(fileMeta.size)}）`, 'ready');
+                        showProgress(false);
+                        receivedChunks = [];
+                        fileMeta = null;
+                    }
+                }
+            };
+        }
+
+        function drawQr(canvas, text, wrap) {
+            if (!text) return;
+            try {
+                if (typeof drawQrToCanvas === 'function') {
+                    drawQrToCanvas(canvas, text, { width: 360, margin: 2 });
+                }
+            } catch (_) {
+                if (wrap) wrap.style.display = 'none';
+            }
+        }
+
+        createBtn.addEventListener('click', async () => {
+            try {
+                createBtn.disabled = true;
+                joinBtn.disabled = true;
+                creatorBox.style.display = 'block';
+                joinerBox.style.display = 'none';
+                offerArea.value = '';
+                answerInput.value = '';
+                offerQrWrap.style.display = 'none';
+
+                peerConnection = new RTCPeerConnection({ iceServers });
+                dataChannel = peerConnection.createDataChannel('fileTransfer');
+                initDataChannel(dataChannel);
+
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+
+                await waitForIce(peerConnection);
+                const sdp = peerConnection.localDescription;
+                const offerStr = JSON.stringify({ type: sdp.type, sdp: sdp.sdp });
+                offerArea.value = offerStr;
+                drawQr(offerQr, offerStr, offerQrWrap);
+                offerQrWrap.style.display = 'block';
+                setStatus('让对方扫上方二维码或复制 Offer，对方发来 Answer 后粘贴或扫码完成连接');
+            } catch (err) {
+                setStatus('创建失败：' + err.message, 'error');
+                createBtn.disabled = false;
+                joinBtn.disabled = false;
+            }
+        });
+
+        joinBtn.addEventListener('click', () => {
+            creatorBox.style.display = 'none';
+            joinerBox.style.display = 'block';
+            offerInput.value = '';
+            answerArea.value = '';
+            answerQrWrap.style.display = 'none';
+        });
+
+        function peerConnToChannel(conn) {
+            const ch = { readyState: 'connecting', send: (x) => conn.send(x), onopen: null, onclose: null, onmessage: null };
+            conn.on('open', () => { ch.readyState = 'open'; ch.onopen && ch.onopen(); });
+            conn.on('close', () => { ch.readyState = 'closed'; ch.onclose && ch.onclose(); });
+            conn.on('data', (data) => ch.onmessage && ch.onmessage({ data }));
+            return ch;
+        }
+
+        roomCreateBtn.addEventListener('click', () => {
+            let roomId = (roomInput.value || '').trim().replace(/\s+/g, '');
+            if (!roomId) roomId = Math.random().toString(36).slice(2, 8);
+            roomInput.value = roomId;
+            roomHint.style.display = 'block';
+            roomHint.textContent = '房间号：' + roomId + '，让对方在输入框填相同房间号后点「加入房间」。';
+            roomCreateBtn.disabled = true;
+            roomJoinBtn.disabled = true;
+            if (roomPeer) roomPeer.destroy();
+            roomPeer = new Peer(roomId + '_s', { debug: 0 });
+            roomPeer.on('open', () => setStatus('已建房间，等待对方加入…'));
+            roomPeer.on('connection', (conn) => {
+                conn.on('open', () => {
+                    dataChannel = peerConnToChannel(conn);
+                    initDataChannel(dataChannel);
+                    transferCard.style.display = 'block';
+                    setStatus('已连接，可以发送文件', 'ready');
+                });
+            });
+            roomPeer.on('error', (err) => {
+                setStatus('建房间失败：' + (err.message || err.type), 'error');
+                roomCreateBtn.disabled = false;
+                roomJoinBtn.disabled = false;
+            });
+        });
+
+        roomJoinBtn.addEventListener('click', () => {
+            const roomId = (roomInput.value || '').trim().replace(/\s+/g, '');
+            if (!roomId) {
+                setStatus('请先输入房间号', 'error');
+                return;
+            }
+            roomHint.style.display = 'block';
+            roomHint.textContent = '正在加入房间…';
+            roomCreateBtn.disabled = true;
+            roomJoinBtn.disabled = true;
+            if (roomPeer) roomPeer.destroy();
+            const myId = roomId + '_r' + Math.random().toString(36).slice(2, 8);
+            roomPeer = new Peer(myId, { debug: 0 });
+            roomPeer.on('open', () => {
+                const conn = roomPeer.connect(roomId + '_s');
+                conn.on('open', () => {
+                    dataChannel = peerConnToChannel(conn);
+                    initDataChannel(dataChannel);
+                    transferCard.style.display = 'block';
+                    setStatus('已连接，可以发送文件', 'ready');
+                    roomHint.textContent = '已加入房间，可传文件。';
+                });
+                conn.on('error', () => {
+                    setStatus('加入失败，请确认房间号正确且对方已建房间', 'error');
+                    roomCreateBtn.disabled = false;
+                    roomJoinBtn.disabled = false;
+                });
+            });
+            roomPeer.on('error', (err) => {
+                setStatus('加入失败：' + (err.message || err.type), 'error');
+                roomCreateBtn.disabled = false;
+                roomJoinBtn.disabled = false;
+            });
+        });
+
+        confirmAnswerBtn.addEventListener('click', async () => {
+            const raw = answerInput.value.trim();
+            if (!raw) {
+                setStatus('请先粘贴对方发来的 Answer', 'error');
+                return;
+            }
+            try {
+                const answer = JSON.parse(raw);
+                if (!answer.type || !answer.sdp) throw new Error('无效的 Answer 格式');
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                setStatus('连接成功，可以发送文件', 'ready');
+                transferCard.style.display = 'block';
+                showProgress(false);
+            } catch (err) {
+                setStatus('Answer 无效或设置失败：' + err.message, 'error');
+            }
+        });
+
+        pasteOfferBtn.addEventListener('click', async () => {
+            const raw = offerInput.value.trim();
+            if (!raw) {
+                setStatus('请先扫码或粘贴对方的 Offer', 'error');
+                return;
+            }
+            try {
+                const offer = JSON.parse(raw);
+                if (!offer.type || !offer.sdp) throw new Error('无效的 Offer 格式');
+
+                peerConnection = new RTCPeerConnection({ iceServers });
+                peerConnection.ondatachannel = (e) => {
+                    dataChannel = e.channel;
+                    initDataChannel(dataChannel);
+                    transferCard.style.display = 'block';
+                };
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+
+                await waitForIce(peerConnection);
+                const sdp = peerConnection.localDescription;
+                const answerStr = JSON.stringify({ type: sdp.type, sdp: sdp.sdp });
+                answerArea.value = answerStr;
+                drawQr(answerQr, answerStr, answerQrWrap);
+                answerQrWrap.style.display = 'block';
+                setStatus('让对方扫上方二维码或复制 Answer，对方完成连接后即可传文件');
+            } catch (err) {
+                setStatus('加入失败：' + err.message, 'error');
+            }
+        });
+
+        async function copyText(text) {
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                }
+                const el = document.createElement('textarea');
+                el.value = text;
+                el.style.position = 'fixed';
+                el.style.opacity = '0';
+                document.body.appendChild(el);
+                el.select();
+                const ok = document.execCommand('copy');
+                document.body.removeChild(el);
+                return ok;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        copyOfferBtn.addEventListener('click', async () => {
+            const ok = await copyText(offerArea.value);
+            setStatus(ok ? 'Offer 已复制到剪贴板' : '请手动选择并复制上方 Offer');
+        });
+
+        copyAnswerBtn.addEventListener('click', async () => {
+            const ok = await copyText(answerArea.value);
+            setStatus(ok ? 'Answer 已复制到剪贴板' : '请手动选择并复制上方 Answer');
+        });
+
+        let scanStream = null;
+        let scanRaf = null;
+
+        function stopScan() {
+            if (scanRaf) cancelAnimationFrame(scanRaf);
+            if (scanStream) scanStream.getTracks().forEach(t => t.stop());
+            scanStream = null;
+            scanRaf = null;
+            scanModal.classList.remove('show');
+        }
+
+        closeScanBtn.addEventListener('click', stopScan);
+        scanModal.addEventListener('click', (e) => { if (e.target === scanModal) stopScan(); });
+
+        function startScan(targetInput) {
+            const canvas = document.getElementById('scanCanvas');
+            const ctx = canvas.getContext('2d');
+            scanModal.classList.add('show');
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+                .then(stream => {
+                    scanStream = stream;
+                    scanVideo.srcObject = stream;
+                    scanVideo.play();
+                    function tick() {
+                        if (!scanStream) return;
+                        if (scanVideo.readyState === scanVideo.HAVE_ENOUGH_DATA) {
+                            canvas.width = scanVideo.videoWidth;
+                            canvas.height = scanVideo.videoHeight;
+                            ctx.drawImage(scanVideo, 0, 0);
+                            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                            if (typeof jsQR !== 'undefined') {
+                                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                                if (code && code.data) {
+                                    try {
+                                        JSON.parse(code.data);
+                                        targetInput.value = code.data;
+                                        setStatus('已填入，请点击下方按钮完成');
+                                        stopScan();
+                                        return;
+                                    } catch (_) {}
+                                }
+                            }
+                        }
+                        scanRaf = requestAnimationFrame(tick);
+                    }
+                    tick();
+                })
+                .catch(() => {
+                    setStatus('无法使用摄像头，请改用粘贴', 'error');
+                    scanModal.classList.remove('show');
+                });
+        }
+
+        scanOfferBtn.addEventListener('click', () => startScan(offerInput));
+        scanAnswerBtn.addEventListener('click', () => startScan(answerInput));
+
+        function waitForIce(pc) {
+            return new Promise((resolve) => {
+                if (pc.iceGatheringState === 'complete') {
+                    resolve();
+                    return;
+                }
+                const onComplete = () => {
+                    pc.removeEventListener('icegatheringstatechange', onComplete);
+                    resolve();
+                };
+                pc.addEventListener('icegatheringstatechange', () => {
+                    if (pc.iceGatheringState === 'complete') onComplete();
+                });
+                setTimeout(resolve, 2000);
+            });
+        }
+
+        fileInput.addEventListener('change', () => {
+            sendBtn.disabled = !fileInput.files.length || !dataChannel || dataChannel.readyState !== 'open';
+        });
+
+        sendBtn.addEventListener('click', async () => {
+            const files = fileInput.files;
+            if (!files.length || !dataChannel || dataChannel.readyState !== 'open') return;
+
+            const chunkSize = 64 * 1024;
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                setStatus(`正在发送：${file.name}`);
+                showProgress(true, 0);
+
+                const meta = { name: file.name, size: file.size, type: file.type };
+                dataChannel.send(JSON.stringify(meta));
+
+                let offset = 0;
+                while (offset < file.size) {
+                    const chunk = file.slice(offset, offset + chunkSize);
+                    dataChannel.send(chunk);
+                    offset += chunkSize;
+                    progressBar.style.width = Math.min(100, (offset / file.size) * 100) + '%';
+                    await new Promise(r => setTimeout(r, 5));
+                }
+
+                setStatus(`已发送：${file.name}（${formatSize(file.size)}）`, 'ready');
+            }
+            showProgress(false);
+            fileInput.value = '';
+            sendBtn.disabled = true;
+        });
+
+        function formatSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+    </script>
+</body>
+</html>
